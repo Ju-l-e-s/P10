@@ -1,59 +1,21 @@
 from django.core.cache import cache
+from rest_framework.response import Response
+from django.conf import settings
 
-class CacheInvalidationMixin:
+class CacheListMixin:
     """
-    Mixin to automatically invalidate the cache after create, update, or delete operations.
+        Mixin to cache list responses using an explicit cache key.
 
-    **How to use:**
-
-        from rest_framework.viewsets import ModelViewSet
-        from .mixins import CacheInvalidationMixin
-        from .models import Project
-        from .serializers import ProjectSerializer
-
-        class ProjectViewSet(CacheInvalidationMixin, ModelViewSet):
-            queryset = Project.objects.all()
-            serializer_class = ProjectSerializer
-
-
-    :ivar cache: The Django cache instance used for storage.
-    """
-
-    def create(self, request, *args, **kwargs):
+        The view define the 'cache_key' attribute.
         """
-        Creates a new object and invalidates the cache.
+    cache_key = None
 
-        :param request: The request instance containing user data and payload.
-        :type request: rest_framework.request.Request
-        :return: The response containing the created object.
-        :rtype: rest_framework.response.Response
-        """
-        response = super().create(request, *args, **kwargs)
-        cache.clear()  # Clears cache after object creation
-        return response
-
-    def update(self, request, *args, **kwargs):
-        """
-        Updates an existing object and invalidates the cache.
-
-        :param request: The request instance with update data.
-        :type request: rest_framework.request.Request
-        :return: The response containing the updated object.
-        :rtype: rest_framework.response.Response
-        """
-        response = super().update(request, *args, **kwargs)
-        cache.clear()  # Clears cache after object update
-        return response
-
-    def destroy(self, request, *args, **kwargs):
-        """
-        Deletes an object and invalidates the cache.
-
-        :param request: The request instance targeting an object for deletion.
-        :type request: rest_framework.request.Request
-        :return: The response confirming deletion.
-        :rtype: rest_framework.response.Response
-        """
-        response = super().destroy(request, *args, **kwargs)
-        cache.clear()  # Clears cache after object deletion
+    def list(self, request, *args, **kwargs):
+        if self.cache_key is None:
+            return super().list(request, *args, **kwargs)
+        cached_data = cache.get(self.cache_key)
+        if cached_data is not None:
+            return Response(cached_data)
+        response = super().list(request, *args, **kwargs)
+        cache.set(self.cache_key, response.data, timeout=settings.CACHE_TIMEOUT)
         return response

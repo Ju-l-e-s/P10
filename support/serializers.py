@@ -1,5 +1,5 @@
-from rest_framework import serializers
 from django.utils import timezone
+from rest_framework import serializers
 from .models import User, Project, Contributor, Issue, Comment
 
 
@@ -45,8 +45,23 @@ class UserSerializer(serializers.ModelSerializer):
             "email",
             "age",
             "can_be_contacted",
-            "can_data_be_shared"
+            "can_data_be_shared",
+            "password",
         ]
+
+    extra_kwargs = {"password": {"write_only": True}}
+
+    def create(self, validated_data):
+        password = validated_data.pop("password")
+        user = User(**validated_data)
+        user.set_password(password)
+        user.save()
+        return user
+
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        rep.pop("password", None)
+        return rep
 
     def validate_age(self, value):
         """
@@ -85,20 +100,24 @@ class ProjectSerializer(BaseAuthorSerializer):
     class Meta:
         model = Project
         fields = ["id", "title", "description", "type", "author", "created_time"]
-        read_only_fields = ["id", "created_time"]
+        read_only_fields = ["id", "created_time", "author"]
 
     def create(self, validated_data):
-        """
-        Creates a new project and assigns the author as its first contributor.
-
-        :param validated_data: Data validated from the request.
-        :type validated_data: dict
-        :return: The newly created Project instance.
-        :rtype: Project
-        """
+        request = self.context.get("request", None)
+        if request and hasattr(request, "user"):
+            validated_data["author"] = request.user
         project = super().create(validated_data)
+        # Ajoute le contributeur automatiquement
         Contributor.objects.create(user=project.author, project=project)
         return project
+
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        rep["author"] = {
+            "id": instance.author.id,
+            "username": instance.author.username,
+        }
+        return rep
 
 
 class ContributorSerializer(serializers.ModelSerializer):
@@ -122,30 +141,32 @@ class ContributorSerializer(serializers.ModelSerializer):
 
     """
 
-    user = serializers.HiddenField(default=serializers.CurrentUserDefault())
+    user = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
 
     class Meta:
         model = Contributor
         fields = ["id", "user", "project"]
-        read_only_fields = ["id"]
+
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        # We update the representation to include more information about the user
+        rep["user"] = {
+            "id": instance.user.id,
+            "username": instance.user.username,
+        }
+        return rep
 
 
 class IssueSerializer(BaseAuthorSerializer):
     """
     Serializer for issue tracking within projects.
 
-    **Features:**
+    Features:
     - Automatically assigns the current user as the issue's author.
 
-    **Endpoints:**
-    - `POST /api/issues/` → Create an issue.
-    - `GET /api/issues/{id}/` → Retrieve issue details.
-
-    **Example Usage (cURL):**
-    ```bash
-    curl -X POST http://127.0.0.1:8000/api/issues/ -H "Authorization: Bearer <token>" \
-         -d '{"title": "Bug Fix", "description": "Fix broken button", "priority": "High", "status": "Open", "project": 1}'
-    ```
+    Endpoints:
+    - POST /api/issues/ → Create an issue.
+    - GET /api/issues/{id}/ → Retrieve issue details.
     """
 
     class Meta:
@@ -162,29 +183,60 @@ class IssueSerializer(BaseAuthorSerializer):
         ]
         read_only_fields = ["id", "created_time"]
 
+    def to_representation(self, instance):
+        """
+        Returns a custom representation of the Issue instance, including author details.
+
+        :param instance: The Issue instance.
+        :type instance: Issue
+        :return: A dictionary representation of the Issue, including author info.
+        :rtype: dict
+        """
+        representation = super().to_representation(instance)
+        representation["author"] = {
+            "id": instance.author.id,
+            "username": instance.author.username,
+        }
+        return representation
+
 
 class CommentSerializer(BaseAuthorSerializer):
     """
     Serializer for comments on issues.
 
-    **Features:**
+    Features:
     - Automatically assigns the current user as the comment's author.
 
-    **Endpoints:**
-    - `POST /api/comments/` → Add a comment to an issue.
-    - `GET /api/comments/{id}/` → Retrieve comment details.
+    Endpoints:
+    - POST /api/comments/ → Add a comment to an issue.
+    - GET /api/comments/{id}/ → Retrieve comment details.
 
-    **Example Usage (Python requests):**
+    Example usage (Python requests):
 
         import requests
         headers = {"Authorization": "Bearer <token>"}
         data = {"description": "I am working on this issue", "issue": 1}
         response = requests.post("http://127.0.0.1:8000/api/comments/", json=data, headers=headers)
         print(response.json())
-
     """
 
     class Meta:
         model = Comment
         fields = ["id", "description", "author", "issue", "created_time"]
         read_only_fields = ["id", "created_time"]
+
+    def to_representation(self, instance):
+        """
+        Returns a custom representation of the Comment instance, including author details.
+
+        :param instance: The Comment instance.
+        :type instance: Comment
+        :return: A dictionary representation of the Comment, including author info.
+        :rtype: dict
+        """
+        representation = super().to_representation(instance)
+        representation["author"] = {
+            "id": instance.author.id,
+            "username": instance.author.username,
+        }
+        return representation

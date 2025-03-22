@@ -181,11 +181,21 @@ LOGGING = {
         },
     },
 }
-
+CACHE_TIMEOUT = 300  # Cache duration: 5 minutes
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": "unique-snowflake",
     }
+}
+
+from datetime import timedelta
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=7),  # lifetime of access token in days
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=30),  # lifetime of refresh token in days
+    "ROTATE_REFRESH_TOKENS": True,  # allow refresh tokens
+    "BLACKLIST_AFTER_ROTATION": True,  # revoke the old refresh token after rotation
+    "AUTH_HEADER_TYPES": ("Bearer",),
 }
 

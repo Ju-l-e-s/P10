@@ -71,15 +71,42 @@ The API will be accessible at [http://127.0.0.1:8000/](http://127.0.0.1:8000/) b
 - Obtain a JWT token via the `/api/token/` endpoint (if you implemented JWT).
 - Include the token in the `Authorization: Bearer <token>` header for subsequent requests.
 
-### Core Endpoints (examples):
+### Endpoints :
 - `POST /api/projects/` : Create a project.
 - `GET /api/projects/` : List all projects (paginated).
 - `GET /api/projects/{id}/` : Retrieve a specific project if you are a contributor or author.
 - `POST /api/issues/` : Create an issue within a project (must specify project field).
 - `GET /api/issues/` : List issues of contributed projects.
 - `POST /api/comments/` : Post a comment on an issue.
+#### User Endpoints
+- `POST /api/users/` : Create a new user.
+- `GET /api/users/` : Retrieve your user details.
+- `PATCH /api/users/{id}/` : Update user data.
+- `DELETE /api/users/{id}/` : Delete a user.
 
-Refer to the code (Views, Serializers, Permissions) to see detailed logic about who can access or modify each resource.
+#### Project Endpoints
+- `POST /api/projects/` : Create a project.
+- `GET /api/projects/` : List all projects (paginated).
+- `GET /api/projects/{id}/` : Retrieve a specific project if you are a contributor or author.
+- `PUT /api/projects/{id}/` : Update a project (only the author).
+- `DELETE /api/projects/{id}/` : Delete a project (only the author).
+
+#### Contributor Endpoints
+- `POST /api/projects/{id}/contributors/` : Add a contributor.
+- `GET /api/projects/{id}/contributors/` : List project contributors.
+- `DELETE /api/projects/{id}/contributors/{user_id}/` : Remove a contributor.
+
+#### Issue Endpoints
+- `POST /api/projects/{id}/issues/` : Create an issue within a project (must specify project field).
+- `GET /api/projects/{id}/issues/` : List issues of contributed projects.
+- `PUT /api/issues/{id}/` : Update an issue (only the author).
+- `DELETE /api/issues/{id}/` : Delete an issue (only the author).
+
+#### Comment Endpoints
+- `POST /api/issues/{id}/comments/` : Post a comment on an issue.
+- `GET /api/issues/{id}/comments/` : List comments for an issue.
+- `PUT /api/comments/{id}/` : Update a comment (only the author).
+- `DELETE /api/comments/{id}/` : Delete a comment (only the author).
 
 ---
 ## Caching Mechanism
@@ -99,38 +126,17 @@ CACHES = {
 }
 ```
 ### How It Works:
-- LocMemCache is an in-memory cache backend that stores cache data in the local memory of the Django process.
-- This reduces the number of repeated database queries for frequently accessed resources.
-- The cache is not persistent and is cleared when the server restarts.
-
-### Caching in Views:
-Some API endpoints benefit from caching to improve response times. The caching mechanism is applied using `@method_decorator(cache_page(TIMEOUT), name="dispatch")` on specific views.
-
-```bash
-from django.utils.decorators import method_decorator
-from django.views.decorators.cache import cache_page
-
-@method_decorator(cache_page(300), name="dispatch")  # Cache for 5 minutes
-class ProjectViewSet(viewsets.ModelViewSet):
-    ...
-```
-### Clearing the Cache:
-
-If you need to manually clear the cache (for debugging or after updates), run:
-
-```bash
-poetry run python manage.py shell
->>> from django.core.cache import cache
->>> cache.clear()
-```
-This will reset the cache, forcing the next request to fetch fresh data from the database.
+SoftDesk API uses caching to improve response times for list endpoints.  
+- Implemented via the `CacheListMixin`, which caches list responses using an explicit cache key.  
+- Cached data is stored for `CACHE_TIMEOUT` seconds (configured in `settings.py`).  
+- Automatically retrieves cached data if available, reducing database queries.
 
 ---
 ## General Instructions
 
 - **Menu navigation**: Not applicable here; this is a REST API. Use tools like Postman or cURL.
 - **Entering data**: Send JSON in your request body when creating/updating resources.
-- **Authentication**: Provide the JWT token (if configured) in your headers for secured endpoints.
+- **Authentication**: Provide the JWT token in your headers for secured endpoints.
 
 ---
 

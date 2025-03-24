@@ -54,6 +54,14 @@ class IssueTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["title"], "Updated Issue")
 
+    def test_update_issue_non_author(self):
+
+        issue = Issue.objects.create(author=self.user, project=self.project, **self.issue_data)
+        other_user = User.objects.create_user(username="otheruser", password="otherpass")
+        self.client.force_authenticate(user=other_user)
+        response = self.client.patch(f"/api/issues/{issue.id}/", {"title": "Unauthorized Update"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_delete_issue(self):
         issue = Issue.objects.create(author=self.user, project=self.project, **self.issue_data)
         response = self.client.delete(f"/api/issues/{issue.id}/")

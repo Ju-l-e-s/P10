@@ -1,4 +1,5 @@
 from rest_framework import viewsets
+from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q
 from django.conf import settings
@@ -7,7 +8,7 @@ from .serializers import (
     UserSerializer, ProjectSerializer, ContributorSerializer,
     IssueSerializer, CommentSerializer
 )
-from .permissions import IsProjectAuthor, IsContributor, IsResourceAuthorOrReadOnly, IsSelfOrCreateOnly
+from .permissions import IsProjectAuthorForContributor, IsContributor, IsResourceAuthorOrReadOnly, IsSelfOrCreateOnly
 from .mixins import CacheListMixin
 
 CACHE_TIMEOUT = settings.CACHE_TIMEOUT  # Cache duration: 5 minutes
@@ -23,10 +24,10 @@ class UserViewSet(viewsets.ModelViewSet):
         - Allows users to retrieve, create, update, and delete their own accounts.
 
     **Endpoints:**
-        - `GET /api/users/{id}` → current user info
-        - `POST /api/users/` → Create a new user
-        - `PATCH /api/users/{id}/` → Update user data
-        - `DELETE /api/users/{id}/` → Delete user
+        - GET /api/users/{id} → current user info
+        - POST /api/users/ → Create a new user
+        - PATCH /api/users/{id}/ → Update user data
+        - DELETE /api/users/{id}/ → Delete user
     """
     queryset = User.objects.all()
     serializer_class = UserSerializer
@@ -52,13 +53,13 @@ class ProjectViewSet(CacheListMixin, viewsets.ModelViewSet):
         - Cache is shared between contributors of the same project.
 
     **Endpoints:**
-        - `GET /api/projects/` → List all accessible projects
-        - `POST /api/projects/` → Create a new project
-        - `PATCH /api/projects/{id}/` → Update a project (Author only)
-        - `DELETE /api/projects/{id}/` → Delete a project (Author only)
+        - GET /api/projects/ → List all accessible projects
+        - POST /api/projects/ → Create a new project
+        - PATCH /api/projects/{id}/ → Update a project (Author only)
+        - DELETE /api/projects/{id}/ → Delete a project (Author only)
     """
     serializer_class = ProjectSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated,IsResourceAuthorOrReadOnly]
     http_method_names = ["get", "post", "patch", "delete"]
     cache_key = "projects_list"
 
@@ -68,10 +69,20 @@ class ProjectViewSet(CacheListMixin, viewsets.ModelViewSet):
             .select_related("author")
             .prefetch_related("contributors")
             .filter(
-                Q(author=self.request.user)
-                | Q(contributors__user=self.request.user)
-            ).distinct().order_by("id")
+                Q(author=self.request.user) | Q(contributors__user=self.request.user)
+            )
+            .distinct()
+            .order_by("id")
         )
+
+    def get_object(self):
+        # Retrive object from all projects (not filtered)
+        queryset = Project.objects.all()
+        obj = get_object_or_404(queryset, pk=self.kwargs['pk'])
+        # Check permissions before returning object
+        self.check_object_permissions(self.request, obj)
+        return obj
+
 
 class ContributorViewSet(CacheListMixin, viewsets.ModelViewSet):
     """
@@ -86,13 +97,13 @@ class ContributorViewSet(CacheListMixin, viewsets.ModelViewSet):
         - Visible to all project contributors.
 
     **Endpoints:**
-        - `GET /api/contributors/` → List all contributors
-        - `POST /api/contributors/` → Add a contributor
-        - `PATCH /api/contributors/{id}/` → Update contributor
-        - `DELETE /api/contributors/{id}/` → Remove a contributor
+        - GET /api/contributors/ → List all contributors
+        - POST /api/contributors/ → Add a contributor
+        - PATCH /api/contributors/{id}/ → Update contributor
+        - DELETE /api/contributors/{id}/ → Remove a contributor
     """
     serializer_class = ContributorSerializer
-    permission_classes = [IsAuthenticated, IsContributor]
+    permission_classes = [IsAuthenticated, IsContributor,IsProjectAuthorForContributor]
     http_method_names = ["get", "post", "patch", "delete"]
     cache_key = "contributors_list"
 
@@ -103,6 +114,14 @@ class ContributorViewSet(CacheListMixin, viewsets.ModelViewSet):
             .filter(project__contributors__user=self.request.user)
             .distinct().order_by("id")
         )
+
+    def get_object(self):
+        # Retrieve object from all contributors (not filtered)
+        queryset = Contributor.objects.all()
+        obj = get_object_or_404(queryset, pk=self.kwargs['pk'])
+        # Check permissions before returning object
+        self.check_object_permissions(self.request, obj)
+        return obj
 
 class IssueViewSet(CacheListMixin, viewsets.ModelViewSet):
     """
@@ -117,25 +136,33 @@ class IssueViewSet(CacheListMixin, viewsets.ModelViewSet):
         - Shared between all project contributors.
 
     **Endpoints:**
-        - `GET /api/issues/` → List all issues
-        - `POST /api/issues/` → Create an issue
-        - `PATCH /api/issues/{id}/` → Update an issue (Author only)
-        - `DELETE /api/issues/{id}/` → Delete an issue (Author only)
+        - GET /api/issues/ → List all issues
+        - POST /api/issues/ → Create an issue
+        - PATCH /api/issues/{id}/ → Update an issue (Author only)
+        - DELETE /api/issues/{id}/ → Delete an issue (Author only)
     """
     serializer_class = IssueSerializer
-    permission_classes = [IsAuthenticated,  IsResourceAuthorOrReadOnly]
+    permission_classes = [IsAuthenticated,  IsResourceAuthorOrReadOnly,IsContributor]
     http_method_names = ["get", "post", "patch", "delete"]
     cache_key = "issues_list"
+
 
     def get_queryset(self):
         return (
             Issue.objects
             .select_related("project", "author", "assignee")
             .prefetch_related("comments")
-            .filter(
-                project__contributors__user=self.request.user
-            ).distinct().order_by("id")
+            .filter(project__contributors__user=self.request.user)
+            .distinct().order_by("id")
         )
+
+    def get_object(self):
+        # Retrieve object from all issues (not filtered)
+        queryset = Issue.objects.all()
+        obj = get_object_or_404(queryset, pk=self.kwargs['pk'])
+        # Check permissions before returning object
+        self.check_object_permissions(self.request, obj)
+        return obj
 
 class CommentViewSet(CacheListMixin, viewsets.ModelViewSet):
     """
@@ -151,13 +178,13 @@ class CommentViewSet(CacheListMixin, viewsets.ModelViewSet):
         - Shared between all project contributors.
 
     **Endpoints:**
-        - `GET /api/comments/` → List all comments
-        - `POST /api/comments/` → Create a comment
-        - `PATCH /api/comments/{id}/` → Update comment (Author only)
-        - `DELETE /api/comments/{id}/` → Delete comment (Author only)
+        - GET /api/comments/ → List all comments
+        - POST /api/comments/ → Create a comment
+        - PATCH /api/comments/{id}/ → Update comment (Author only)
+        - DELETE /api/comments/{id}/ → Delete comment (Author only)
     """
     serializer_class = CommentSerializer
-    permission_classes = [IsAuthenticated, IsResourceAuthorOrReadOnly]
+    permission_classes = [IsAuthenticated, IsResourceAuthorOrReadOnly,IsContributor]
     http_method_names = ["get", "post", "patch", "delete"]
     cache_key = "comments_list"
 
@@ -169,3 +196,11 @@ class CommentViewSet(CacheListMixin, viewsets.ModelViewSet):
                 issue__project__contributors__user=self.request.user
             ).distinct().order_by("id")
         )
+
+    def get_object(self):
+        # Retrieve object from all issues (not filtered)
+        queryset = Comment.objects.all()
+        obj = get_object_or_404(queryset, pk=self.kwargs['pk'])
+        # Check permissions before returning object
+        self.check_object_permissions(self.request, obj)
+        return obj

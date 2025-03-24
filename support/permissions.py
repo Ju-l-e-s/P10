@@ -1,7 +1,10 @@
+from django.db.models import Q
 from rest_framework.permissions import BasePermission, SAFE_METHODS
 from rest_framework.request import Request
 from rest_framework.views import APIView
-from .models import Contributor, Project, Issue
+from .models import Contributor, Project, Issue, Comment
+
+
 
 class IsSelfOrCreateOnly(BasePermission):
     """
@@ -86,29 +89,66 @@ class IsProjectAuthor(BasePermission):
 
         return False
 
+
 class IsContributor(BasePermission):
     """
     Permission ensuring the user is a contributor to the project before accessing its resources.
     Used to restrict access to projects, issues, and comments to only contributors.
 
     **Logic:**
-    - If the request is to list resources, the user just needs to be authenticated.
-    - If the request is to create or modify something, the user must be a contributor of the relevant project.
+    - If the request is to list resources (GET), the user must be authenticated.
+    - To create (POST), update (PATCH), or delete (DELETE) resources,
+      the user must be a contributor or the author of the relevant project.
     """
 
     message = "You must be a contributor to this project."
 
-    def has_object_permission(self, request, view, obj):
-        # Autoriser l'auteur du projet
-        project = self._get_project_from_obj(obj)
-        if project and project.author == request.user:
-            return True
+    def has_permission(self, request, view):
+        if request.method in SAFE_METHODS:
+            return request.user.is_authenticated
 
-        # Vérifier si l'utilisateur est contributeur
+        project_id = None
+
+        if view.action == "create":
+            # Try to get first the project_id from the request
+            project_id = request.data.get("project")
+
+            # if not project_id is given we try to get it from the issue
+            if not project_id:
+                issue_id = request.data.get("issue")
+                if issue_id:
+                    try:
+                        issue = Issue.objects.select_related("project").get(id=issue_id)
+                        project_id = issue.project_id
+                    except Issue.DoesNotExist:
+                        return False
+                else:
+                    return False
+
+        elif view.action in ["partial_update", "destroy"]:
+            obj = view.get_object()
+            project = self._get_project_from_obj(obj)
+            if project:
+                project_id = project.id
+            else:
+                return False
+        else:
+            return False
+
         return Contributor.objects.filter(
-            user=request.user,
-            project=project
+            Q(project_id=project_id) &
+            (Q(user=request.user) | Q(project__author=request.user))
         ).exists()
+
+    def has_object_permission(self, request, view, obj):
+        project = self._get_project_from_obj(obj)
+
+        # For write actions, only the project author is allowed
+        if request.method not in SAFE_METHODS:
+            return project and project.author == request.user
+
+        # For readind, the user must be a contributor to the project
+        return Contributor.objects.filter(user=request.user, project=project).exists()
 
     def _get_project_from_obj(self, obj):
         if isinstance(obj, Project):
@@ -118,7 +158,6 @@ class IsContributor(BasePermission):
         if isinstance(obj, Comment):
             return obj.issue.project
         return None
-
 
 
 class IsResourceAuthorOrReadOnly(BasePermission):
@@ -152,3 +191,33 @@ class IsResourceAuthorOrReadOnly(BasePermission):
 
         # Only allow modifications if the user is the author.
         return obj.author == request.user
+
+
+class IsProjectAuthorForContributor(BasePermission):
+    message = "Only the project author can modify or delete contributors."
+
+    def has_permission(self, request, view):
+        if request.method in SAFE_METHODS:
+            return request.user.is_authenticated
+
+        # For create, the project id must be provided and the user must be the author
+        if view.action == "create":
+            project_id = request.data.get("project")
+            if project_id:
+                return Project.objects.filter(id=project_id, author=request.user).exists()
+            return False
+
+        # For update/delete, we check on the object
+        if view.action in ["partial_update", "destroy"]:
+            obj = view.get_object()
+            project = self._get_project_from_obj(obj)
+            if project:
+                return project.author == request.user
+            return False
+
+        return False
+
+    def _get_project_from_obj(self, obj):
+        if hasattr(obj, "project"):
+            return obj.project
+        return None

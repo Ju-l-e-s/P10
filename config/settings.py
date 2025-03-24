@@ -42,8 +42,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "rest_framework_simplejwt",
 
-    # Apps of the project
-    "support",
+    'support.apps.SupportConfig',
 
     # Django pytest
     "pytest_django",
@@ -138,6 +137,9 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
+    "DEFAULT_PERMISSION_CLASSES": (
+        "rest_framework.permissions.IsAuthenticated",
+    ),
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,
 }
@@ -181,14 +183,18 @@ LOGGING = {
         },
     },
 }
-CACHE_TIMEOUT = 300  # Cache duration: 5 minutes
+CACHE_TIMEOUT = 300
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": "unique-snowflake",
+        "LOCATION": "unique-snowflake-v2",
+        "OPTIONS": {
+            "MAX_ENTRIES": 1000,
+            "CULL_FREQUENCY": 2,
+        },
+        "TIMEOUT": CACHE_TIMEOUT  # 5 minutes
     }
 }
-
 from datetime import timedelta
 
 SIMPLE_JWT = {
@@ -197,5 +203,8 @@ SIMPLE_JWT = {
     "ROTATE_REFRESH_TOKENS": True,  # allow refresh tokens
     "BLACKLIST_AFTER_ROTATION": True,  # revoke the old refresh token after rotation
     "AUTH_HEADER_TYPES": ("Bearer",),
+    "USER_ID_FIELD": "id",
+    "USER_ID_CLAIM": "user_id",
+    "AUTH_HEADER_NAME": "HTTP_AUTHORIZATION",
 }
 

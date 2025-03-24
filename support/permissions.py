@@ -1,7 +1,7 @@
 from rest_framework.permissions import BasePermission, SAFE_METHODS
 from rest_framework.request import Request
 from rest_framework.views import APIView
-from .models import Contributor, Project
+from .models import Contributor, Project, Issue
 
 class IsSelfOrCreateOnly(BasePermission):
     """
@@ -68,98 +68,58 @@ class IsProjectAuthor(BasePermission):
         :return: `True` if the user is the project author, otherwise `False`.
         :rtype: bool
         """
-        # Allow authenticated users to read (GET)
         if view.action in ["list", "retrieve"]:
             return request.user.is_authenticated
 
-        # Extract project_id from request data or URL kwargs
-        project_id = request.data.get("project") or view.kwargs.get("project_pk") or view.kwargs.get("pk")
+            # If the user tries to delete a contributor
+        if view.action == "destroy" and "pk" in view.kwargs:
+            try:
+                contributor = Contributor.objects.get(pk=view.kwargs["pk"])
+            except Contributor.DoesNotExist:
+                return False
+            # check if the user is the project author
+            return contributor.project.author == request.user
 
-        # Check if the authenticated user is the author of the project
+        project_id = request.data.get("project") or view.kwargs.get("project_pk") or view.kwargs.get("pk")
         if project_id:
             return Project.objects.filter(id=project_id, author=request.user).exists()
 
         return False
 
-
 class IsContributor(BasePermission):
     """
-    Permission that ensures the user is a **contributor** of a project before accessing its resources.
-
-    This is used to **restrict access** to projects, issues, and comments to **only contributors**.
+    Permission ensuring the user is a contributor to the project before accessing its resources.
+    Used to restrict access to projects, issues, and comments to only contributors.
 
     **Logic:**
-    - If the request is to **list projects**, the user just needs to be authenticated.
-    - If the request is to **modify** something, the user must be a contributor of the related project.
-
-    :ivar message: Error message returned when the permission is denied.
-    :vartype message: str
+    - If the request is to list resources, the user just needs to be authenticated.
+    - If the request is to create or modify something, the user must be a contributor of the relevant project.
     """
 
     message = "You must be a contributor to this project."
 
-    def has_permission(self, request, view):
-        """
-        Checks if the request user is a contributor to the project.
-        For detail views (retrieve, update, destroy), defers to object-level permissions.
-
-        :param request: The incoming HTTP request.
-        :type request: rest_framework.request.Request
-        :param view: The view handling the request.
-        :type view: rest_framework.views.APIView
-        :return: True if allowed, otherwise False.
-        :rtype: bool
-        """
-        # For list action, require authentication.
-        if view.action == "list":
-            return request.user.is_authenticated
-
-        # For create action, try to get the project ID from request.data.
-        if view.action == "create":
-            project_id = request.data.get("project")
-            # If project_id is not provided, check if an issue is provided.
-            if not project_id:
-                issue_id = request.data.get("issue")
-                if issue_id:
-                    from .models import Issue
-                    try:
-                        project_id = Issue.objects.get(id=issue_id).project_id
-                    except Issue.DoesNotExist:
-                        return False
-                else:
-                    return False
-            return Contributor.objects.filter(user=request.user, project_id=project_id).exists()
-
-        # For other actions, defer to object-level permissions.
-        return True
-
     def has_object_permission(self, request, view, obj):
-        """
-        Checks object-level permission to determine if the request user is a contributor to the project.
-        Also allows the action if the user is the author of the object.
-
-        :param request: The incoming HTTP request.
-        :type request: rest_framework.request.Request
-        :param view: The view handling the request.
-        :type view: rest_framework.views.APIView
-        :param obj: The object being accessed (e.g., Comment).
-        :type obj: object
-        :return: True if allowed, otherwise False.
-        :rtype: bool
-        """
-        # Allow if the user is the author of the object (compare by id).
-        if hasattr(obj, "author") and obj.author and request.user and (obj.author.id == request.user.id):
+        # Autoriser l'auteur du projet
+        project = self._get_project_from_obj(obj)
+        if project and project.author == request.user:
             return True
 
-        # Determine the project id from the object.
-        if hasattr(obj, "project"):
-            project_id = obj.project.id
-        elif hasattr(obj, "issue"):
-            project_id = obj.issue.project.id
-        else:
-            return False
+        # Vérifier si l'utilisateur est contributeur
+        return Contributor.objects.filter(
+            user=request.user,
+            project=project
+        ).exists()
 
-        return Contributor.objects.filter(user=request.user, project_id=project_id).exists()
+    def _get_project_from_obj(self, obj):
+        if isinstance(obj, Project):
+            return obj
+        if isinstance(obj, (Issue, Contributor)):
+            return obj.project
+        if isinstance(obj, Comment):
+            return obj.issue.project
+        return None
+
+
 
 class IsResourceAuthorOrReadOnly(BasePermission):
     """

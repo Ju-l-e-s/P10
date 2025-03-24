@@ -88,7 +88,7 @@ The API will be accessible at [http://127.0.0.1:8000/](http://127.0.0.1:8000/) b
 - `POST /api/projects/` : Create a project.
 - `GET /api/projects/` : List all projects (paginated).
 - `GET /api/projects/{id}/` : Retrieve a specific project if you are a contributor or author.
-- `PUT /api/projects/{id}/` : Update a project (only the author).
+- `PATCH /api/projects/{id}/` : Update a project (only the author).
 - `DELETE /api/projects/{id}/` : Delete a project (only the author).
 
 #### Contributor Endpoints
@@ -99,13 +99,13 @@ The API will be accessible at [http://127.0.0.1:8000/](http://127.0.0.1:8000/) b
 #### Issue Endpoints
 - `POST /api/projects/{id}/issues/` : Create an issue within a project (must specify project field).
 - `GET /api/projects/{id}/issues/` : List issues of contributed projects.
-- `PUT /api/issues/{id}/` : Update an issue (only the author).
+- `PATCH /api/issues/{id}/` : Update an issue (only the author).
 - `DELETE /api/issues/{id}/` : Delete an issue (only the author).
 
 #### Comment Endpoints
 - `POST /api/issues/{id}/comments/` : Post a comment on an issue.
 - `GET /api/issues/{id}/comments/` : List comments for an issue.
-- `PUT /api/comments/{id}/` : Update a comment (only the author).
+- `PATCH /api/comments/{id}/` : Update a comment (only the author).
 - `DELETE /api/comments/{id}/` : Delete a comment (only the author).
 
 ---
@@ -121,15 +121,20 @@ The caching system is configured in config/settings.py as follows:
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": "unique-snowflake",
+        "LOCATION": "unique-snowflake-v2",
+        "OPTIONS": {
+            "MAX_ENTRIES": 1000,
+            "CULL_FREQUENCY": 2,
+        },
+        "TIMEOUT": CACHE_TIMEOUT  # 5 minutes
     }
 }
 ```
 ### How It Works:
 SoftDesk API uses caching to improve response times for list endpoints.  
-- Implemented via the `CacheListMixin`, which caches list responses using an explicit cache key.  
-- Cached data is stored for `CACHE_TIMEOUT` seconds (configured in `settings.py`).  
-- Automatically retrieves cached data if available, reducing database queries.
+- Responses cached for 5 minutes via CacheListMixin.
+- Automatic cache invalidation implemented through signals (post_save, post_delete).
+- Shared cache among project contributors, optimizing query performance.
 
 ---
 ## General Instructions
@@ -153,6 +158,8 @@ softdesk/
 ├── logs/
 │   ├── django.log
 ├── support/
+│   ├── migrations/
+│   ├── tests/
 │   ├── __init__.py
 │   ├── admin.py
 │   ├── apps.py
@@ -161,10 +168,9 @@ softdesk/
 │   ├── models.py
 │   ├── permissions.py
 │   ├── serializers.py
+│   ├── signals.py
 │   ├── urls.py
 │   ├── views.py
-│   ├── migrations/
-│   ├── tests/
 ├── db.sqlite3
 ├── manage.py
 ├── poetry.lock

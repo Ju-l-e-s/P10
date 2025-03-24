@@ -1,5 +1,3 @@
-from django.utils.decorators import method_decorator
-from django.views.decorators.cache import cache_page
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q
@@ -20,10 +18,6 @@ class UserViewSet(viewsets.ModelViewSet):
 
     Provides standard CRUD operations for user management.
 
-    :cvar queryset: The base queryset containing all users.
-    :cvar serializer_class: The serializer used to convert User objects into JSON.
-    :cvar permission_classes: Permissions required to access this view.
-
     **Permissions:**
         - Requires authentication.
         - Allows users to retrieve, create, update, and delete their own accounts.
@@ -33,9 +27,6 @@ class UserViewSet(viewsets.ModelViewSet):
         - `POST /api/users/` → Create a new user
         - `PATCH /api/users/{id}/` → Update user data
         - `DELETE /api/users/{id}/` → Delete user
-
-    **Example Usage :**
-    GET http://127.0.0.1:8000/api/users/ -H "Authorization: Bearer <token>"
     """
     queryset = User.objects.all()
     serializer_class = UserSerializer
@@ -47,8 +38,6 @@ class UserViewSet(viewsets.ModelViewSet):
             return User.objects.filter(id=self.request.user.id)
         return User.objects.none()
 
-
-@method_decorator(cache_page(CACHE_TIMEOUT), name="dispatch")
 class ProjectViewSet(CacheListMixin, viewsets.ModelViewSet):
     """
     API endpoint for managing projects.
@@ -59,29 +48,19 @@ class ProjectViewSet(CacheListMixin, viewsets.ModelViewSet):
         - Only the project author can update or delete a project.
 
     **Caching:**
-        - Responses are cached for 5 minutes to improve performance.
-
-    :cvar serializer_class: The serializer used to convert Project objects into JSON.
-    :cvar permission_classes: Required permissions to access this view.
-    :ivar request: The request instance containing user authentication data.
+        - Responses are cached for 5 minutes with automatic invalidation on changes.
+        - Cache is shared between contributors of the same project.
 
     **Endpoints:**
         - `GET /api/projects/` → List all accessible projects
         - `POST /api/projects/` → Create a new project
-        - `PUT /api/projects/{id}/` → Update a project (Author only)
+        - `PATCH /api/projects/{id}/` → Update a project (Author only)
         - `DELETE /api/projects/{id}/` → Delete a project (Author only)
-
-    **Example Usage (Python requests):**
-
-        import requests
-        headers = {"Authorization": "Bearer <token>"}
-        response = requests.get("http://127.0.0.1:8000/api/projects/", headers=headers)
-        print(response.json())
     """
     serializer_class = ProjectSerializer
     permission_classes = [IsAuthenticated]
-    http_method_names = ["get", "post", "put", "patch", "delete"]
-    cache_key = "projects_list"  # Explicit cache key for projects list
+    http_method_names = ["get", "post", "patch", "delete"]
+    cache_key = "projects_list"
 
     def get_queryset(self):
         return (
@@ -94,8 +73,6 @@ class ProjectViewSet(CacheListMixin, viewsets.ModelViewSet):
             ).distinct().order_by("id")
         )
 
-
-@method_decorator(cache_page(CACHE_TIMEOUT), name="dispatch")
 class ContributorViewSet(CacheListMixin, viewsets.ModelViewSet):
     """
     API endpoint for managing project contributors.
@@ -105,35 +82,28 @@ class ContributorViewSet(CacheListMixin, viewsets.ModelViewSet):
         - Project authors can add and remove contributors.
 
     **Caching:**
-        - Responses are cached for 5 minutes.
-
-    :cvar serializer_class: The serializer used to convert Contributor objects into JSON.
-    :cvar permission_classes: Required permissions to access this view.
-    :ivar request: The request instance containing user authentication data.
+        - Responses are cached for 5 minutes with automatic invalidation.
+        - Visible to all project contributors.
 
     **Endpoints:**
         - `GET /api/contributors/` → List all contributors
         - `POST /api/contributors/` → Add a contributor
+        - `PATCH /api/contributors/{id}/` → Update contributor
         - `DELETE /api/contributors/{id}/` → Remove a contributor
-
-    **Example Usage (cURL):**
-
-        curl -X GET http://127.0.0.1:8000/api/contributors/ -H "Authorization: Bearer <token>"
     """
     serializer_class = ContributorSerializer
-    permission_classes = [IsAuthenticated, IsProjectAuthor]
+    permission_classes = [IsAuthenticated, IsContributor]
     http_method_names = ["get", "post", "patch", "delete"]
-    cache_key = "contributors_list"  # Explicit cache key for contributors list
+    cache_key = "contributors_list"
 
     def get_queryset(self):
         return (
             Contributor.objects
             .select_related("user", "project")
-            .filter(project__author=self.request.user).order_by("id")
+            .filter(project__contributors__user=self.request.user)
+            .distinct().order_by("id")
         )
 
-
-@method_decorator(cache_page(CACHE_TIMEOUT), name="dispatch")
 class IssueViewSet(CacheListMixin, viewsets.ModelViewSet):
     """
     API endpoint for managing issues.
@@ -143,22 +113,19 @@ class IssueViewSet(CacheListMixin, viewsets.ModelViewSet):
         - Users can retrieve, update, or delete their own issues.
 
     **Caching:**
-        - Responses are cached for 5 minutes.
-
-    :cvar serializer_class: The serializer used to convert Issue objects into JSON.
-    :cvar permission_classes: Required permissions to access this view.
-    :ivar request: The request instance containing user authentication data.
+        - Responses are cached for 5 minutes with project-aware invalidation.
+        - Shared between all project contributors.
 
     **Endpoints:**
         - `GET /api/issues/` → List all issues
         - `POST /api/issues/` → Create an issue
-        - `PUT /api/issues/{id}/` → Update an issue (Author only)
+        - `PATCH /api/issues/{id}/` → Update an issue (Author only)
         - `DELETE /api/issues/{id}/` → Delete an issue (Author only)
     """
     serializer_class = IssueSerializer
-    permission_classes = [IsAuthenticated, IsContributor, IsResourceAuthorOrReadOnly]
-    http_method_names = ["get", "post", "put", "patch", "delete"]
-    cache_key = "issues_list"  # Explicit cache key for issues list
+    permission_classes = [IsAuthenticated,  IsResourceAuthorOrReadOnly]
+    http_method_names = ["get", "post", "patch", "delete"]
+    cache_key = "issues_list"
 
     def get_queryset(self):
         return (
@@ -170,31 +137,35 @@ class IssueViewSet(CacheListMixin, viewsets.ModelViewSet):
             ).distinct().order_by("id")
         )
 
-
-@method_decorator(cache_page(CACHE_TIMEOUT), name="dispatch")
 class CommentViewSet(CacheListMixin, viewsets.ModelViewSet):
     """
     API endpoint for managing comments on issues.
 
-    Users can:
-    - Create comments on issues within projects they contribute to.
-    - Retrieve comments related to issues in contributed projects.
-    - Update or delete their own comments.
+    **Permissions:**
+        - Users can create comments on issues within contributed projects.
+        - Users can retrieve comments from visible issues.
+        - Authors can update or delete their own comments.
 
-    Implements caching to optimize query performance.
+    **Caching:**
+        - Responses are cached for 5 minutes with issue-aware invalidation.
+        - Shared between all project contributors.
 
-    :cvar serializer_class: The serializer used to convert Comment objects into JSON.
-    :cvar permission_classes: Required permissions to access this view.
-    :ivar request: The request instance containing user authentication data.
+    **Endpoints:**
+        - `GET /api/comments/` → List all comments
+        - `POST /api/comments/` → Create a comment
+        - `PATCH /api/comments/{id}/` → Update comment (Author only)
+        - `DELETE /api/comments/{id}/` → Delete comment (Author only)
     """
     serializer_class = CommentSerializer
-    permission_classes = [IsAuthenticated, IsContributor, IsResourceAuthorOrReadOnly]
-    http_method_names = ["get", "post", "put", "patch", "delete"]
-    cache_key = "comments_list"  # Explicit cache key for comments list
+    permission_classes = [IsAuthenticated, IsResourceAuthorOrReadOnly]
+    http_method_names = ["get", "post", "patch", "delete"]
+    cache_key = "comments_list"
 
     def get_queryset(self):
-        return Comment.objects \
-            .select_related("issue", "author") \
+        return (
+            Comment.objects
+            .select_related("issue", "author")
             .filter(
                 issue__project__contributors__user=self.request.user
             ).distinct().order_by("id")
+        )

@@ -37,14 +37,14 @@ class CommentTests(APITestCase):
 
     def test_create_comment(self):
         """
-        L'utilisateur (contributeur) peut créer un commentaire => permission IsContributor + IsResourceAuthorOrReadOnly
+        The user (contributor) can create a comment => permission IsContributor + IsResourceAuthorOrReadOnly
         """
         response = self.client.post("/api/comments/", self.comment_data, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_get_comments(self):
         """
-        Lister tous les commentaires => usage de la pagination => on vérifie count et results.
+        List all comments => pagination usage => check count and results.
         """
         Comment.objects.create(author=self.user, issue=self.issue, description="Test Comment")
         response = self.client.get("/api/comments/")
@@ -54,7 +54,7 @@ class CommentTests(APITestCase):
 
     def test_update_comment(self):
         """
-        Seul l'auteur du commentaire peut le modifier => IsResourceAuthorOrReadOnly.
+        Only the author of the comment can update it => IsResourceAuthorOrReadOnly
         """
         comment = Comment.objects.create(author=self.user, issue=self.issue, description="Old Comment")
         response = self.client.patch(f"/api/comments/{comment.id}/", {"description": "Updated Comment"}, format="json")
@@ -63,7 +63,7 @@ class CommentTests(APITestCase):
 
     def test_delete_comment(self):
         """
-        Only the author of the comment can delete it.
+        Only the author of the comment can delete it => IsResourceAuthorOrReadOnly
         """
         comment = Comment.objects.create(author=self.user, issue=self.issue, description="Test Comment")
         response = self.client.delete(f"/api/comments/{comment.id}/")

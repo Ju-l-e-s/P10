@@ -1,3 +1,4 @@
+# support/tests/test_contributors.py
 import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase
@@ -20,6 +21,7 @@ class ContributorTests(APITestCase):
             description="A test project",
             type="BACKEND"
         )
+        Contributor.objects.create(user=self.user, project=self.project)
 
         self.contributor_data = {
             "user": self.other_user.id,
@@ -27,26 +29,21 @@ class ContributorTests(APITestCase):
         }
 
     def test_add_contributor(self):
-        """
-        Seul l'auteur du projet peut ajouter un contributor (IsProjectAuthor).
-        """
         response = self.client.post("/api/contributors/", self.contributor_data, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_get_contributors(self):
-        """
-        Lister les contributeurs => pagination => vérifie count et results.
-        """
+        # Add the second contributor
         Contributor.objects.create(user=self.other_user, project=self.project)
+
         response = self.client.get("/api/contributors/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["count"], 1)
-        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["count"], 2)  # Maintenant 2 contributeurs (user + other_user)
+        self.assertEqual(len(response.data["results"]), 2)
 
     def test_remove_contributor(self):
-        """
-        Seul l'auteur peut supprimer un contributor => IsProjectAuthor.
-        """
         contributor = Contributor.objects.create(user=self.other_user, project=self.project)
+
+        # check if the URL matches the API schema
         response = self.client.delete(f"/api/contributors/{contributor.id}/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)

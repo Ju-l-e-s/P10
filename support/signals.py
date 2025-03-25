@@ -25,20 +25,19 @@ def get_related_users(instance):
 
     return []
 
+def increment_version(key_prefix, user_id):
+    version_key = f"{key_prefix}_version_user_{user_id}"
+    version = cache.get(version_key) or 1
+    cache.set(version_key, version + 1, None)
+    return version + 1
+
 @receiver([post_save, post_delete], sender=Project)
 @receiver([post_save, post_delete], sender=Contributor)
 @receiver([post_save, post_delete], sender=Issue)
 @receiver([post_save, post_delete], sender=Comment)
 def auto_invalidate_cache(sender, instance, **kwargs):
-    """Global cache invalidation signal handler"""
+    """Invalidate all pages by incrementing the cache version for each endpoint"""
     users = get_related_users(instance)
-    keys_to_delete = []
     for user_id in users:
-        keys_to_delete.extend([
-            f"projects_list_user_{user_id}_v2",
-            f"contributors_list_user_{user_id}_v2",
-            f"issues_list_user_{user_id}_v2",
-            f"comments_list_user_{user_id}_v2"
-        ])
-    if keys_to_delete:
-        cache.delete_many(set(keys_to_delete))
+        for prefix in ["projects_list", "contributors_list", "issues_list", "comments_list"]:
+            increment_version(prefix, user_id)

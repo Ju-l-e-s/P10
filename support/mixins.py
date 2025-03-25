@@ -6,15 +6,28 @@ logger = logging.getLogger(__name__)
 
 class CacheListMixin:
     """
-    Caching mixin for DRF ViewSets
-    Handles automatic cache invalidation on data modification
+    Caching mixin for DRF ViewSets.
+    Use a version per user and endpoint to invalidate all pages.
     """
-    cache_key = None  # defined in each ViewSets
+    cache_key = None  # difine in each ViewSet
+
+    def get_cache_version(self, request):
+        """Retrieve or initialize the cache version for the user and endpoint"""
+        if self.cache_key and request.user.is_authenticated:
+            version_key = f"{self.cache_key}_version_user_{request.user.pk}"
+            version = cache.get(version_key)
+            if not version:
+                version = 1
+                cache.set(version_key, version, None)
+            return version
+        return 1
 
     def get_cache_key(self, request):
-        """Generate versioned cache key with user context"""
+        """Generate a cache key including the user, the page number and the version"""
         if self.cache_key and request.user.is_authenticated:
-            return f"{self.cache_key}_user_{request.user.pk}_v2"
+            page = request.query_params.get('page', '1')
+            version = self.get_cache_version(request)
+            return f"{self.cache_key}_user_{request.user.pk}_page_{page}_v{version}"
         return None
 
     def list(self, request, *args, **kwargs):
@@ -48,8 +61,9 @@ class CacheListMixin:
         self._invalidate_cache()
 
     def _invalidate_cache(self):
-        """Centralized cache invalidation mechanism"""
-        cache_key = self.get_cache_key(self.request)
-        if cache_key:
-            logger.debug(f"Invalidating cache key: {cache_key}")
-            cache.delete(cache_key)
+        """Centralized cache invalidation mechanism for all existing pages"""
+        if self.cache_key and self.request.user.is_authenticated:
+            version_key = f"{self.cache_key}_version_user_{self.request.user.pk}"
+            version = cache.get(version_key) or 1
+            cache.set(version_key, version + 1, None)
+            logger.debug(f"Cache invalidated: {version_key} incremented to {version + 1}")
